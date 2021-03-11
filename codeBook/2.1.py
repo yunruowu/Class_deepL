@@ -72,15 +72,12 @@ def PreparePlusData():
     x_train_l_r = tf.data.Dataset.from_tensor_slices((x_train_l, x_train_r))
     y_train_data = tf.data.Dataset.from_tensor_slices(y_train)
     # print(x_train_l_r)
-    train_datasets = tf.data.Dataset.zip((x_train_l_r, y_train_data))
+    train_datasets = tf.data.Dataset.zip((x_train_l_r, y_train_data)).batch(64)
     print(train_datasets)
     x_test_l_r = tf.data.Dataset.from_tensor_slices((x_test_l, x_test_r))
     y_test_data = tf.data.Dataset.from_tensor_slices(y_test)
 
-    print(list(train_datasets.as_numpy_iterator())[0:1])
-    # print(x_test_l_r)
-    test_datasets = tf.data.Dataset.zip((x_test_l_r, y_test_data))
-    # test_datasets = tf.data.Dataset.from_tensor_slices((tf.data.Dataset.zip(x_test_l, x_test_r), y_test))
+    test_datasets = tf.data.Dataset.zip((x_test_l_r, y_test_data)).batch(64)
     # # WORK1: ---------------END--------------------
     # print(train_datasets)
     # print(test_datasets)
@@ -98,15 +95,14 @@ class BiasPlusLayer(keras.layers.Layer):
     def __init__(self, num_outputs, **kwargs):
         super(BiasPlusLayer, self).__init__(**kwargs)
         self.num_outputs = num_outputs
-        self.bias = 0
-        keras.layers.Layer.add_weight(self.bias)
+        self.bias = self.add_weight(shape=(1, num_outputs), initializer='random_normal', trainable=True)
 
     def build(self, input_shape):
         super(BiasPlusLayer, self).build(input_shape)  # Be sure to call this somewhere!
 
     # 2.2在调用中实现input1+input2+bias
     def call(self, input):
-        return
+        return tf.add(tf.add(input[0] ,input[1]), self.bias)
 
 
 # WORK2: ---------------END--------------------
@@ -123,27 +119,29 @@ def BuildModel():
     # 需要给出输入的维度，例如，在第一层Desse中加入参数：input_shape=(xxx,)
     # (注意一维向量大小这里一定写为"xxx,")
     shared_base = tf.keras.Sequential([
-
+        tf.keras.layers.Input(shape=(196,)),
+        tf.keras.layers.Dense(64, input_shape=(196, 0), activation='relu'),
+        tf.keras.layers.Dense(64, input_shape=(196, 0), activation='relu')
     ], name='seq1')
 
     # 3.2 x1,x2 分别表示一对图片中两个图像输入，请补充完整输入维度信息
-    x1 = Input(shape=(28,28,1))
-    x2 = Input(shape=(28,28,1))
+    x1 = Input(shape=(196,))
+    x2 = Input(shape=(196,))
     # 3.3 b1,b2 表示应用共享骨干网的两个处理通道
     b1 = shared_base(x1)
     b2 = shared_base(x2)
     # 3.4 b1,b2 的处理结果放入我们的自定义层做b1+b2+bias处理
     # 注意，对于多个输入通道，输入用列表表示
     # 请补充BiasPlusLayer参数及输入
-    b = BiasPlusLayer(64, name='BiasPlusLayer')()
+    b = BiasPlusLayer(64, name='BiasPlusLayer')([b1, b2])
 
     # 3.5 加法实际用分类实现，用softmax激活，这之前有个全连接，请补充相关参数和输入
-    output = Dense(32, activation = 'softmax')()
+    output = Dense(19, input_shape=(64,), activation='softmax')(b)
     # 3.6 最后构建 Keras.Model,请补充完整输入输出
-    siamese_net = Model(inputs=
+    siamese_net = Model(inputs=[x1,x2],
                         outputs = output)
     # 打印网络结构用于测试，请不要修改地址和参数
-    plot_model(siamese_net, to_file='./test_figure/step1/siamese_net.png', show_shapes=True, expand_nested=True)
+    # plot_model(siamese_net, to_file='./test_figure/step1/siamese_net.png', show_shapes=True, expand_nested=True)
 
     return siamese_net
 
@@ -157,7 +155,8 @@ def test_fun():
     siamese_net = BuildModel()
     # 4.1 配置模型，我们的加法用分类实现，故选择分类loss (注意根据标签y的形式，选择合适的loss)，及评测metric，
     # 其他训练参数不用变
-    siamese_net.compile(loss='categorical_crossentropy', optimizer=tf.keras.optimizers.RMSprop(learning_rate=0.001), metrics=['CategoricalAccuracy'])
+    siamese_net.compile(loss='sparse_categorical_crossentropy', optimizer=tf.keras.optimizers.RMSprop(learning_rate=0.001),
+                        metrics=['accuracy'])
     # 在给定训练参数下，一般12个迭代就可以完成训练任务（val_acc>0.7），用时200多秒
     epochs = 12
     train_datasets, test_datasets = PreparePlusData()
